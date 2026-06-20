@@ -1,5 +1,6 @@
 package com.vetnova.inventario.service;
 
+import com.vetnova.inventario.dto.StockBajoEvent;
 import com.vetnova.inventario.model.MovimientoInventario;
 import com.vetnova.inventario.model.Producto;
 import com.vetnova.inventario.repository.MovimientoInventarioRepository;
@@ -13,8 +14,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.Arrays;
 import java.util.List;
@@ -34,7 +34,7 @@ public class MovimientoInventarioServiceTest {
     private ProductoRepository productoRepository;
 
     @Mock
-    private RestTemplate restTemplate;
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private MovimientoInventarioService movimientoService;
@@ -44,12 +44,6 @@ public class MovimientoInventarioServiceTest {
 
     @BeforeEach
     void setUp() {
-        ReflectionTestUtils.setField(
-                movimientoService,
-                "notificacionesUrl",
-                "http://localhost:8089/api/v1/notificaciones"
-        );
-
         producto = new Producto(
                 1L,
                 "Vacuna Rabia",
@@ -126,6 +120,7 @@ public class MovimientoInventarioServiceTest {
 
         verify(productoRepository).save(producto);
         verify(movimientoRepository).save(movimiento);
+        verify(eventPublisher, never()).publishEvent(any(StockBajoEvent.class));
     }
 
     @Test
@@ -148,6 +143,7 @@ public class MovimientoInventarioServiceTest {
 
         verify(productoRepository).save(producto);
         verify(movimientoRepository).save(movimiento);
+        verify(eventPublisher, never()).publishEvent(any(StockBajoEvent.class));
     }
 
     @Test
@@ -167,6 +163,7 @@ public class MovimientoInventarioServiceTest {
 
         verify(productoRepository, never()).save(any(Producto.class));
         verify(movimientoRepository, never()).save(any(MovimientoInventario.class));
+        verify(eventPublisher, never()).publishEvent(any(StockBajoEvent.class));
     }
 
     @Test
@@ -189,6 +186,7 @@ public class MovimientoInventarioServiceTest {
 
         verify(productoRepository).save(producto);
         verify(movimientoRepository).save(movimiento);
+        verify(eventPublisher, never()).publishEvent(any(StockBajoEvent.class));
     }
 
     @Test
@@ -207,6 +205,7 @@ public class MovimientoInventarioServiceTest {
 
         verify(productoRepository, never()).save(any(Producto.class));
         verify(movimientoRepository, never()).save(any(MovimientoInventario.class));
+        verify(eventPublisher, never()).publishEvent(any(StockBajoEvent.class));
     }
 
     @Test
@@ -223,10 +222,11 @@ public class MovimientoInventarioServiceTest {
 
         verify(productoRepository, never()).save(any(Producto.class));
         verify(movimientoRepository, never()).save(any(MovimientoInventario.class));
+        verify(eventPublisher, never()).publishEvent(any(StockBajoEvent.class));
     }
 
     @Test
-    void registrarMovimiento_cuandoStockQuedaBajo_deberiaEnviarNotificacion() {
+    void registrarMovimiento_cuandoStockQuedaBajo_deberiaPublicarEventoStockBajo() {
         movimiento.setTipoMovimiento("SALIDA");
         movimiento.setCantidad(6);
 
@@ -241,11 +241,7 @@ public class MovimientoInventarioServiceTest {
 
         assertEquals(4, producto.getStockActual());
 
-        verify(restTemplate).postForEntity(
-                eq("http://localhost:8089/api/v1/notificaciones"),
-                any(),
-                eq(String.class)
-        );
+        verify(eventPublisher).publishEvent(any(StockBajoEvent.class));
     }
 
     @Test
