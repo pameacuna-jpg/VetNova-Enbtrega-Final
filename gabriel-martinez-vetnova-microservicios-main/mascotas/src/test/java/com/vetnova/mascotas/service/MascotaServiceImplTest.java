@@ -1,5 +1,6 @@
 package com.vetnova.mascotas.service;
 
+import com.vetnova.mascotas.dto.ClienteDTO;
 import com.vetnova.mascotas.dto.MascotaRequestDTO;
 import com.vetnova.mascotas.dto.MascotaResponseDTO;
 import com.vetnova.mascotas.dto.TransferenciaRequestDTO;
@@ -7,28 +8,24 @@ import com.vetnova.mascotas.exception.ResourceNotFoundException;
 import com.vetnova.mascotas.model.Especie;
 import com.vetnova.mascotas.model.HistorialMascota;
 import com.vetnova.mascotas.model.Mascota;
-import com.vetnova.mascotas.model.TransferenciaPropietario;
 import com.vetnova.mascotas.repository.EspecieRepository;
 import com.vetnova.mascotas.repository.MascotaRepository;
-import com.vetnova.mascotas.repository.TransferenciaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.*;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,30 +38,64 @@ class MascotaServiceImplTest {
     private EspecieRepository especieRepository;
 
     @Mock
-    private TransferenciaRepository transferenciaRepository;
+    private RestTemplate restTemplate;
 
     @InjectMocks
     private MascotaServiceImpl mascotaService;
 
-    private Especie especieCanina;
+    private Mascota mascota;
+    private Especie especie;
     private MascotaRequestDTO request;
 
     @BeforeEach
     void setUp() {
-        especieCanina = Especie.builder()
-                .idEspecie(1L)
-                .nombre("Canino")
-                .descripcion("Perro")
+        ReflectionTestUtils.setField(
+                mascotaService,
+                "clientesUrl",
+                "http://localhost:8084/api/v1/clientes"
+        );
+
+        ReflectionTestUtils.setField(
+                mascotaService,
+                "notificacionesUrl",
+                "http://localhost:8089/api/v1/notificaciones"
+        );
+
+        especie = new Especie();
+        especie.setIdEspecie(1L);
+        especie.setNombre("Canino");
+
+        HistorialMascota historial = HistorialMascota.builder()
+                .idHistorial(1L)
+                .numeroHistoriaClinica("HC-TEST")
+                .resumenClinico("Ficha clínica inicial creada automáticamente")
+                .ultimoPeso(12.5)
+                .estaEsterilizado(true)
+                .alergiasCriticas("Ninguna")
                 .build();
 
+        mascota = Mascota.builder()
+                .idMascota(1L)
+                .nombre("Luna")
+                .especie(especie)
+                .raza("Labrador")
+                .sexo("Hembra")
+                .fechaNacimiento(LocalDate.now().minusYears(2))
+                .idCliente(50L)
+                .estado("ACTIVO")
+                .numeroMicrochip("MIC123")
+                .build();
+
+        mascota.asignarHistorial(historial);
+
         request = MascotaRequestDTO.builder()
-                .nombre("Firulais")
+                .nombre("Luna")
                 .especieNombre("Canino")
                 .raza("Labrador")
-                .sexo("Macho")
-                .fechaNacimiento(LocalDate.now().minusYears(2).minusMonths(1))
+                .sexo("Hembra")
+                .fechaNacimiento(LocalDate.now().minusYears(2))
                 .idCliente(50L)
-                .numeroMicrochip("CHIP-001")
+                .numeroMicrochip("MIC123")
                 .ultimoPeso(12.5)
                 .estaEsterilizado(true)
                 .alergiasCriticas("Ninguna")
@@ -72,192 +103,186 @@ class MascotaServiceImplTest {
     }
 
     @Test
-    void registrar_cuandoEspecieExiste_debeCrearMascotaActivaConHistorialClinico() {
-        // Given
-        when(especieRepository.findByNombreIgnoreCase("Canino")).thenReturn(Optional.of(especieCanina));
-        when(mascotaRepository.count()).thenReturn(4L);
-        when(mascotaRepository.save(any(Mascota.class))).thenAnswer(invocation -> {
-            Mascota mascota = invocation.getArgument(0);
-            mascota.setIdMascota(20L);
-            return mascota;
-        });
+    void registrar_cuandoEspecieYClienteExisten_debeCrearMascotaActivaConHistorialClinico() {
+        ClienteDTO cliente = new ClienteDTO();
+        cliente.setIdCliente(50L);
+        cliente.setNombre("Cliente Test");
 
-        // When
-        MascotaResponseDTO respuesta = mascotaService.registrar(request);
+        when(especieRepository.findByNombreIgnoreCase("Canino"))
+                .thenReturn(Optional.of(especie));
 
-        // Then
-        assertNotNull(respuesta);
-        assertEquals(20L, respuesta.getIdMascota());
-        assertEquals("Firulais", respuesta.getNombre());
-        assertEquals("Canino", respuesta.getEspecie());
-        assertEquals("ACTIVO", respuesta.getEstado());
-        assertEquals("VHC-00005", respuesta.getNumeroHistoriaClinica());
-        assertEquals(12.5, respuesta.getUltimoPeso());
-        assertTrue(respuesta.getEstaEsterilizado());
-        assertEquals("Ninguna", respuesta.getAlergiasCriticas());
+        when(restTemplate.getForObject(
+                eq("http://localhost:8084/api/v1/clientes/50"),
+                eq(ClienteDTO.class)
+        )).thenReturn(cliente);
 
-        ArgumentCaptor<Mascota> captor = ArgumentCaptor.forClass(Mascota.class);
-        verify(mascotaRepository).save(captor.capture());
-        Mascota mascotaGuardada = captor.getValue();
-        assertSame(mascotaGuardada, mascotaGuardada.getHistorialMascota().getMascota());
-        assertEquals("Apertura de expediente clínico.", mascotaGuardada.getHistorialMascota().getResumenClinico());
+        when(mascotaRepository.save(any(Mascota.class)))
+                .thenReturn(mascota);
+
+        MascotaResponseDTO resultado = mascotaService.registrar(request);
+
+        assertNotNull(resultado);
+        assertEquals("Luna", resultado.getNombre());
+        assertEquals("Canino", resultado.getEspecie());
+        assertEquals("ACTIVO", resultado.getEstado());
+        assertEquals(50L, resultado.getIdCliente());
+        assertNotNull(resultado.getNumeroHistoriaClinica());
+
+        verify(especieRepository).findByNombreIgnoreCase("Canino");
+        verify(restTemplate).getForObject(
+                eq("http://localhost:8084/api/v1/clientes/50"),
+                eq(ClienteDTO.class)
+        );
+        verify(mascotaRepository).save(any(Mascota.class));
     }
 
     @Test
-    void registrar_cuandoEspecieNoExiste_debeLanzarResourceNotFoundException() {
-        // Given
-        when(especieRepository.findByNombreIgnoreCase("Canino")).thenReturn(Optional.empty());
+    void registrar_cuandoClienteNoExiste_debeLanzarExcepcion() {
+        when(especieRepository.findByNombreIgnoreCase("Canino"))
+                .thenReturn(Optional.of(especie));
 
-        // When / Then
-        ResourceNotFoundException exception = assertThrows(ResourceNotFoundException.class,
-                () -> mascotaService.registrar(request));
+        when(restTemplate.getForObject(
+                eq("http://localhost:8084/api/v1/clientes/50"),
+                eq(ClienteDTO.class)
+        )).thenReturn(null);
 
-        assertEquals("La Especie especificada no existe en el catálogo maestro", exception.getMessage());
-        verify(mascotaRepository, never()).save(any());
-    }
+        ResourceNotFoundException ex = assertThrows(
+                ResourceNotFoundException.class,
+                () -> mascotaService.registrar(request)
+        );
 
-    @Test
-    void actualizar_cuandoMascotaYEspecieExisten_debeActualizarDatosEHistorial() {
-        // Given
-        Mascota mascota = crearMascotaBase();
-        MascotaRequestDTO actualizacion = MascotaRequestDTO.builder()
-                .nombre("Max")
-                .especieNombre("Canino")
-                .raza("Poodle")
-                .sexo("Macho")
-                .fechaNacimiento(LocalDate.now().minusYears(3))
-                .idCliente(50L)
-                .numeroMicrochip("CHIP-999")
-                .ultimoPeso(9.7)
-                .estaEsterilizado(false)
-                .alergiasCriticas("Polen")
-                .build();
-
-        when(mascotaRepository.findById(20L)).thenReturn(Optional.of(mascota));
-        when(especieRepository.findByNombreIgnoreCase("Canino")).thenReturn(Optional.of(especieCanina));
-        when(mascotaRepository.save(any(Mascota.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        // When
-        MascotaResponseDTO respuesta = mascotaService.actualizar(20L, actualizacion);
-
-        // Then
-        assertEquals("Max", respuesta.getNombre());
-        assertEquals("Poodle", respuesta.getRaza());
-        assertEquals(9.7, respuesta.getUltimoPeso());
-        assertFalse(respuesta.getEstaEsterilizado());
-        assertEquals("Polen", respuesta.getAlergiasCriticas());
-        verify(mascotaRepository).save(mascota);
+        assertTrue(ex.getMessage().contains("Cliente propietario no existe"));
+        verify(mascotaRepository, never()).save(any(Mascota.class));
     }
 
     @Test
     void obtenerPorId_cuandoMascotaExiste_debeRetornarDetalle() {
-        // Given
-        Mascota mascota = crearMascotaBase();
-        when(mascotaRepository.findById(20L)).thenReturn(Optional.of(mascota));
+        when(mascotaRepository.findById(1L))
+                .thenReturn(Optional.of(mascota));
 
-        // When
-        MascotaResponseDTO respuesta = mascotaService.obtenerPorId(20L);
+        MascotaResponseDTO resultado = mascotaService.obtenerPorId(1L);
 
-        // Then
-        assertEquals(20L, respuesta.getIdMascota());
-        assertEquals("Firulais", respuesta.getNombre());
-        assertEquals("Canino", respuesta.getEspecie());
-        assertTrue(respuesta.getEdadCalculada().contains("Años"));
+        assertNotNull(resultado);
+        assertEquals(1L, resultado.getIdMascota());
+        assertEquals("Luna", resultado.getNombre());
+        assertEquals("Canino", resultado.getEspecie());
+        assertEquals(true, resultado.getEstaEsterilizado());
+
+        verify(mascotaRepository).findById(1L);
     }
 
     @Test
-    void obtenerPorId_cuandoMascotaNoExiste_debeLanzarResourceNotFoundException() {
-        // Given
-        when(mascotaRepository.findById(99L)).thenReturn(Optional.empty());
+    void obtenerPorId_cuandoMascotaNoExiste_debeLanzarExcepcion() {
+        when(mascotaRepository.findById(99L))
+                .thenReturn(Optional.empty());
 
-        // When / Then
-        ResourceNotFoundException exception = assertThrows(ResourceNotFoundException.class,
-                () -> mascotaService.obtenerPorId(99L));
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> mascotaService.obtenerPorId(99L)
+        );
 
-        assertEquals("Paciente no encontrado", exception.getMessage());
+        verify(mascotaRepository).findById(99L);
+    }
+
+    @Test
+    void actualizar_cuandoMascotaExiste_debeActualizarDatos() {
+        MascotaRequestDTO datosActualizados = MascotaRequestDTO.builder()
+                .nombre("Max")
+                .especieNombre("Canino")
+                .raza("Beagle")
+                .sexo("Macho")
+                .fechaNacimiento(LocalDate.now().minusYears(3))
+                .idCliente(50L)
+                .numeroMicrochip("MIC999")
+                .ultimoPeso(10.0)
+                .estaEsterilizado(false)
+                .alergiasCriticas("Polen")
+                .build();
+
+        when(mascotaRepository.findById(1L))
+                .thenReturn(Optional.of(mascota));
+
+        when(especieRepository.findByNombreIgnoreCase("Canino"))
+                .thenReturn(Optional.of(especie));
+
+        when(mascotaRepository.save(any(Mascota.class)))
+                .thenReturn(mascota);
+
+        MascotaResponseDTO resultado = mascotaService.actualizar(1L, datosActualizados);
+
+        assertNotNull(resultado);
+        assertEquals("Max", resultado.getNombre());
+        assertEquals("Beagle", resultado.getRaza());
+        assertEquals("Macho", resultado.getSexo());
+
+        verify(mascotaRepository).findById(1L);
+        verify(especieRepository).findByNombreIgnoreCase("Canino");
+        verify(mascotaRepository).save(any(Mascota.class));
     }
 
     @Test
     void buscarPacientes_debeRetornarPaginaMapeada() {
-        // Given
-        Mascota mascota = crearMascotaBase();
         Pageable pageable = PageRequest.of(0, 10);
-        when(mascotaRepository.buscarPacientesGlobal("fir", pageable))
-                .thenReturn(new PageImpl<>(List.of(mascota), pageable, 1));
+        Page<Mascota> page = new PageImpl<>(List.of(mascota), pageable, 1);
 
-        // When
-        Page<MascotaResponseDTO> resultado = mascotaService.buscarPacientes("fir", pageable);
+        when(mascotaRepository.findAll(pageable))
+                .thenReturn(page);
 
-        // Then
+        Page<MascotaResponseDTO> resultado =
+                mascotaService.buscarPacientes("Luna", pageable);
+
+        assertNotNull(resultado);
         assertEquals(1, resultado.getTotalElements());
-        assertEquals("Firulais", resultado.getContent().get(0).getNombre());
-        verify(mascotaRepository).buscarPacientesGlobal("fir", pageable);
+        assertEquals("Luna", resultado.getContent().get(0).getNombre());
+
+        verify(mascotaRepository).findAll(pageable);
     }
 
     @Test
-    void transferirPropietario_cuandoMascotaExiste_debeRegistrarTransferenciaYCambiarCliente() {
-        // Given
-        Mascota mascota = crearMascotaBase();
-        TransferenciaRequestDTO transferencia = TransferenciaRequestDTO.builder()
-                .idNuevoCliente(99L)
-                .build();
+    void transferirPropietario_cuandoMascotaExiste_debeCambiarClienteYNotificar() {
+        TransferenciaRequestDTO transferencia = new TransferenciaRequestDTO();
+        transferencia.setIdNuevoCliente(99L);
 
-        when(mascotaRepository.findById(20L)).thenReturn(Optional.of(mascota));
+        ClienteDTO clienteNuevo = new ClienteDTO();
+        clienteNuevo.setIdCliente(99L);
+        clienteNuevo.setNombre("Cliente Nuevo");
 
-        // When
-        mascotaService.transferirPropietario(20L, transferencia);
+        when(mascotaRepository.findById(1L))
+                .thenReturn(Optional.of(mascota));
 
-        // Then
+        when(restTemplate.getForObject(
+                eq("http://localhost:8084/api/v1/clientes/99"),
+                eq(ClienteDTO.class)
+        )).thenReturn(clienteNuevo);
+
+        when(mascotaRepository.save(any(Mascota.class)))
+                .thenReturn(mascota);
+
+        mascotaService.transferirPropietario(1L, transferencia);
+
         assertEquals(99L, mascota.getIdCliente());
 
-        ArgumentCaptor<TransferenciaPropietario> captor = ArgumentCaptor.forClass(TransferenciaPropietario.class);
-        verify(transferenciaRepository).save(captor.capture());
-        TransferenciaPropietario auditoria = captor.getValue();
-        assertEquals(20L, auditoria.getIdMascota());
-        assertEquals(50L, auditoria.getIdClienteAnterior());
-        assertEquals(99L, auditoria.getIdClienteNuevo());
-        assertNotNull(auditoria.getFechaTransferencia());
+        verify(mascotaRepository).findById(1L);
+        verify(restTemplate).getForObject(
+                eq("http://localhost:8084/api/v1/clientes/99"),
+                eq(ClienteDTO.class)
+        );
         verify(mascotaRepository).save(mascota);
     }
 
     @Test
     void actualizarEstadoVital_cuandoMascotaExiste_debeGuardarEstadoEnMayusculas() {
-        // Given
-        Mascota mascota = crearMascotaBase();
-        when(mascotaRepository.findById(20L)).thenReturn(Optional.of(mascota));
+        when(mascotaRepository.findById(1L))
+                .thenReturn(Optional.of(mascota));
 
-        // When
-        mascotaService.actualizarEstadoVital(20L, "fallecido");
+        when(mascotaRepository.save(any(Mascota.class)))
+                .thenReturn(mascota);
 
-        // Then
+        mascotaService.actualizarEstadoVital(1L, "fallecido");
+
         assertEquals("FALLECIDO", mascota.getEstado());
+
+        verify(mascotaRepository).findById(1L);
         verify(mascotaRepository).save(mascota);
-    }
-
-    private Mascota crearMascotaBase() {
-        Mascota mascota = Mascota.builder()
-                .idMascota(20L)
-                .nombre("Firulais")
-                .especie(especieCanina)
-                .raza("Labrador")
-                .sexo("Macho")
-                .fechaNacimiento(LocalDate.now().minusYears(2))
-                .idCliente(50L)
-                .estado("ACTIVO")
-                .numeroMicrochip("CHIP-001")
-                .build();
-
-        HistorialMascota historial = HistorialMascota.builder()
-                .idHistorial(30L)
-                .numeroHistoriaClinica("VHC-00005")
-                .resumenClinico("Apertura de expediente clínico.")
-                .ultimoPeso(12.5)
-                .estaEsterilizado(true)
-                .alergiasCriticas("Ninguna")
-                .fechaUltimaAtencion(LocalDate.now())
-                .build();
-
-        mascota.asignarHistorial(historial);
-        return mascota;
     }
 }

@@ -3,10 +3,12 @@ package com.vetnova.mascotas.dto;
 import jakarta.validation.constraints.*;
 import lombok.*;
 import java.time.LocalDate;
+import lombok.Data;
 
 @Getter @Setter
 @NoArgsConstructor @AllArgsConstructor
 @Builder
+@Data
 public class MascotaRequestDTO {
 
     @NotBlank(message = "El nombre de la mascota es obligatorio")
@@ -34,3 +36,5 @@ public class MascotaRequestDTO {
     private Boolean estaEsterilizado;
     private String alergiasCriticas;
 }
+
+    
