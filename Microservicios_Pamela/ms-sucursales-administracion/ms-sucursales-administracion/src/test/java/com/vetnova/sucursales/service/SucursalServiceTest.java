@@ -2,16 +2,13 @@ package com.vetnova.sucursales.service;
 
 import com.vetnova.sucursales.model.Sucursal;
 import com.vetnova.sucursales.repository.SucursalRepository;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,136 +28,106 @@ class SucursalServiceTest {
 
     @BeforeEach
     void setUp() {
-
-        sucursal = new Sucursal(
-                1L,
-                "VetNova Concepción",
-                "Av. O'Higgins 123",
-                "+56412223344",
-                "Concepción",
-                "ACTIVA"
-        );
+        sucursal = new Sucursal();
+        sucursal.setIdSucursal(1L);
+        sucursal.setNombre("Sucursal Centro");
+        sucursal.setDireccion("Av. Principal 123");
+        sucursal.setTelefono("56912345678");
+        sucursal.setCiudad("Concepción");
+        sucursal.setEstado("ACTIVA");
     }
 
     @Test
-    void listarSucursales_deberiaRetornarLista() {
+    void listarSucursales_debeRetornarLista() {
+        when(sucursalRepository.findAll()).thenReturn(List.of(sucursal));
 
-        when(sucursalRepository.findAll())
-                .thenReturn(Arrays.asList(sucursal));
-
-        List<Sucursal> resultado =
-                sucursalService.listarSucursales();
+        List<Sucursal> resultado = sucursalService.listarSucursales();
 
         assertEquals(1, resultado.size());
-
         verify(sucursalRepository).findAll();
     }
 
     @Test
-    void listarSucursalesActivas_deberiaRetornarLista() {
+    void listarSucursalesActivas_debeRetornarActivas() {
+        when(sucursalRepository.findByEstadoIgnoreCase("ACTIVA")).thenReturn(List.of(sucursal));
 
-        when(sucursalRepository.findByEstadoIgnoreCase("ACTIVA"))
-                .thenReturn(Arrays.asList(sucursal));
-
-        List<Sucursal> resultado =
-                sucursalService.listarSucursalesActivas();
+        List<Sucursal> resultado = sucursalService.listarSucursalesActivas();
 
         assertEquals(1, resultado.size());
-
-        verify(sucursalRepository)
-                .findByEstadoIgnoreCase("ACTIVA");
+        assertEquals("ACTIVA", resultado.get(0).getEstado());
+        verify(sucursalRepository).findByEstadoIgnoreCase("ACTIVA");
     }
 
     @Test
-    void buscarPorId_deberiaRetornarSucursal() {
+    void buscarPorId_cuandoExiste_debeRetornarSucursal() {
+        when(sucursalRepository.findById(1L)).thenReturn(Optional.of(sucursal));
 
-        when(sucursalRepository.findById(1L))
-                .thenReturn(Optional.of(sucursal));
+        Sucursal resultado = sucursalService.buscarPorId(1L);
 
-        Sucursal resultado =
-                sucursalService.buscarPorId(1L);
-
-        assertEquals("VetNova Concepción",
-                resultado.getNombre());
-
+        assertEquals(1L, resultado.getIdSucursal());
         verify(sucursalRepository).findById(1L);
     }
 
     @Test
-    void crearSucursal_deberiaGuardarSucursal() {
+    void buscarPorId_cuandoNoExiste_debeLanzarExcepcion() {
+        when(sucursalRepository.findById(99L)).thenReturn(Optional.empty());
 
-        when(sucursalRepository.save(any(Sucursal.class)))
-                .thenReturn(sucursal);
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> sucursalService.buscarPorId(99L));
 
-        Sucursal resultado =
-                sucursalService.crearSucursal(sucursal);
+        assertEquals("Sucursal no encontrada con ID: 99", ex.getMessage());
+        verify(sucursalRepository).findById(99L);
+    }
 
-        assertNotNull(resultado);
-        assertEquals("ACTIVA",
-                resultado.getEstado());
+    @Test
+    void crearSucursal_debeGuardarComoActiva() {
+        sucursal.setEstado("INACTIVA");
+        when(sucursalRepository.save(sucursal)).thenReturn(sucursal);
 
+        Sucursal resultado = sucursalService.crearSucursal(sucursal);
+
+        assertEquals("ACTIVA", resultado.getEstado());
         verify(sucursalRepository).save(sucursal);
     }
 
     @Test
-    void actualizarSucursal_deberiaModificarDatos() {
+    void actualizarSucursal_debeModificarDatos() {
+        Sucursal datos = new Sucursal();
+        datos.setNombre("Sucursal Norte");
+        datos.setDireccion("Nueva Dirección");
+        datos.setTelefono("56987654321");
+        datos.setCiudad("Talcahuano");
 
-        Sucursal nueva = new Sucursal(
-                null,
-                "VetNova Chillán",
-                "Av. Libertad 500",
-                "+56425556666",
-                "Chillán",
-                "ACTIVA"
-        );
+        when(sucursalRepository.findById(1L)).thenReturn(Optional.of(sucursal));
+        when(sucursalRepository.save(sucursal)).thenReturn(sucursal);
 
-        when(sucursalRepository.findById(1L))
-                .thenReturn(Optional.of(sucursal));
+        Sucursal resultado = sucursalService.actualizarSucursal(1L, datos);
 
-        when(sucursalRepository.save(any(Sucursal.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        Sucursal resultado =
-                sucursalService.actualizarSucursal(1L, nueva);
-
-        assertEquals("VetNova Chillán",
-                resultado.getNombre());
-
-        assertEquals("Chillán",
-                resultado.getCiudad());
-
+        assertEquals("Sucursal Norte", resultado.getNombre());
+        assertEquals("Nueva Dirección", resultado.getDireccion());
+        assertEquals("56987654321", resultado.getTelefono());
+        assertEquals("Talcahuano", resultado.getCiudad());
         verify(sucursalRepository).save(sucursal);
     }
 
     @Test
-    void desactivarSucursal_deberiaCambiarEstado() {
-
-        when(sucursalRepository.findById(1L))
-                .thenReturn(Optional.of(sucursal));
-
-        when(sucursalRepository.save(any(Sucursal.class)))
-                .thenReturn(sucursal);
+    void desactivarSucursal_debeCambiarEstadoAInactiva() {
+        when(sucursalRepository.findById(1L)).thenReturn(Optional.of(sucursal));
+        when(sucursalRepository.save(sucursal)).thenReturn(sucursal);
 
         sucursalService.desactivarSucursal(1L);
 
-        assertEquals("INACTIVA",
-                sucursal.getEstado());
-
+        assertEquals("INACTIVA", sucursal.getEstado());
         verify(sucursalRepository).save(sucursal);
     }
 
     @Test
-    void buscarPorCiudad_deberiaRetornarResultados() {
+    void buscarPorCiudad_debeRetornarLista() {
+        when(sucursalRepository.findByCiudadIgnoreCase("Concepción")).thenReturn(List.of(sucursal));
 
-        when(sucursalRepository.findByCiudadIgnoreCase("Concepción"))
-                .thenReturn(Arrays.asList(sucursal));
-
-        List<Sucursal> resultado =
-                sucursalService.buscarPorCiudad("Concepción");
+        List<Sucursal> resultado = sucursalService.buscarPorCiudad("Concepción");
 
         assertEquals(1, resultado.size());
-
-        verify(sucursalRepository)
-                .findByCiudadIgnoreCase("Concepción");
+        verify(sucursalRepository).findByCiudadIgnoreCase("Concepción");
     }
 }
